@@ -8,6 +8,10 @@
 #include <sstream>
 #include <cuda_runtime.h>
 #include <thrust/device_vector.h>
+#include <curand_kernel.h>
+#include <curand.h>
+#include <assert.h>
+
 
 using std::vector;
 using std::unordered_map;
@@ -31,9 +35,9 @@ class csr_graph{
 
 public :
 
-    csr_graph(size_t *,size_t *,double *,size_t ,size_t );
+    csr_graph(size_t *,size_t *,double *,size_t ,size_t ,double ,double);
     ~csr_graph();
-
+    __device__ void node2vec_walk(size_t *, size_t, size_t,const curandState *);
 
 private :
 
@@ -45,13 +49,15 @@ private :
 	size_t p;
 	size_t q;
 
-	__device__ void node2vec_walk(thrust::device_vector<size_t> &,size_t,size_t);
-
 	__device__ void sample(size_t *, size_t *);
 
-	__device__ void set_weight(const size_t *,const size_t *, double *, const size_t, const size_t);
+	__device__ void set_weight(const size_t *,const size_t *, double *, const size_t, const size_t, const size_t);
 
+	__device__ bool is_adj(size_t &, size_t &, const size_t *, const size_t);
 
+	__device__ bool sample(size_t , double *, const curandState *);
+
+	__device__ void weight_norm(double *,size_t);
 };
 
 struct compareByTwoKey{
@@ -64,64 +70,146 @@ struct compareByTwoKey{
     }
 };
 
-__device__ void set_weight(const size_t *prev_adj,const size_t *curr_adj, double *w, 
-					const size_t prev_n_len, const size_t curr_n_len){
+__device__ bool 
+csr_graph::is_adj(size_t & L, size_t & U, const size_t *prev_adj, const size_t k){
 
-	size_t tid = blockIdx.x;
-	size_t curr;
-	size_t l_bound;
-	size_t u_bound;
-
-	while(tid < curr_n_len){
-
-		curr = curr_adj[tid];
-		l_bound = 0;
-		u_bound = prev_n_len;
-		w[tid] /= q;
-
-		while(l_bound < u_bound){
-			if(curr < prev_adj[ (l_bound+u_bound)/2 ]){
-				u_bound = (l_bound+u_bound)/2 - 1;
-			}
-			elif(curr > prev_adj[ (l_bound+u_bound)/2 ]){
-				l_bound = (l_bound+u_bound)/2 + 1;
-			}
-			else{
-				w[tid] *= q;
-				break;
-			}
+	size_t mid;
+	while(L <= U){
+			mid = (L+U) >> 1;
+			if(k < prev_adj[ mid ])
+				U = mid - 1;
+			else if(k > prev_adj[ mid ])
+				L = mid + 1;
+			else
+				return true;
 		}
-		tid += blockDim.x * gridDim.x;
+	return false;
+}
+
+__device__ void 
+csr_graph::set_weight(const size_t *prev_adj,const size_t *curr_adj, double *w, 
+					const size_t prev_n_len, const size_t curr_n_len, const size_t prev){
+
+	assert(curr_n_len > 0);
+	assert(prev_n_len > 0);
+
+	size_t curr_l = 0;
+	size_t curr_r = curr_n_len-1;
+	size_t node_id;
+
+	size_t L = 0;
+	size_t l_bound = L;
+	size_t U = prev_n_len;
+	size_t u_bound = U;
+
+
+	while(curr_n_len > 0){
+
+		node_id = curr_adj[curr_l];
+
+		if(is_adj(l_bound,u_bound,prev_adj,node_id)==false)
+			w[curr_l] = 1/q;
+		else if(node_id == prev)
+			w[curr_l] = 1/p;
+
+		++curr_l;
+		if(curr_r < curr_l)
+			break;
+		
+		L = l_bound;          //  限界减小搜索空间
+		u_bound = U;
+		node_id = curr_adj[curr_r];
+
+
+		if(is_adj(l_bound,u_bound,prev_adj,node_id)==false)
+			w[curr_r] = 1/q;
+		else if(node_id == prev)
+			w[curr_l] = 1/p;
+
+		--curr_r;
+		if(curr_r < curr_l)
+			break;
+		
+		U = u_bound;        //  限界减小搜索空间
+		l_bound = L;
+
 	}
-}
-
-
-
-__device__ void sample(size_t * src,size_t * curr){
 
 }
 
-// __device__ void
-// csr_graph::random_walk(thrust::device_vector<size_t> & walk, 
-// 				size_t start_node, size_t len){
+__device__ void 
+csr_graph::weight_norm(double *w,const size_t N){
 
-// 	walk.push_back(start_node);
-// 	size_t & curr;
-// 	size_t * neighbor;
-// 	size_t start_i,end_i;
+	double summation = 0;
 
-// 	for(size_t i=0;i<len;++i){
-// 		curr = walk.back();
-// 		start_i = this->offset[curr];
-// 		end_i = this->offset[curr+1];
-// 		neighbor = &(this->neighbor[start_i]);
+	for(size_t i=0;i<N;++i)
+		summation +=w[i];
+	
+	for(size_t i=0;i<N;++i)
+		w[i]/=summation;
+}
 
-// 	}
 
-// }
+__device__ size_t sample(const size_t N, double *w, curandState * state){
+
+	double x = curand_uniform(state);
+	double sum_w = 0;
+	size_t i;
+	for(i=0;i<N;++i){
+		sum_w+=w[i];
+		if(sum_w > x)
+			break;
+	}    
+	assert(i<N);
+	return i;
+}
+
+__device__ void
+csr_graph::node2vec_walk(size_t * walk, const size_t start_node, const size_t len,const curandState * state){
+
+	walk[0] = start_node;
+	size_t prev = start_node;
+	size_t curr = start_node;
+	size_t prev_n_len,curr_n_len;
+	size_t * prev_adj;
+	size_t * curr_adj;
+	size_t start_i,end_i;
+	double *w;
+
+	for(size_t i=1;i<len;++i){
+
+		// 获取当前时刻结点信息
+		start_i = this->offset[curr];
+		end_i = this->offset[curr+1];
+		curr_n_len = start_i - end_i;
+		curr_adj = &(this->neighbor[start_i]);
+
+		w = new double[curr_n_len];
+		for(size_t j=0;j<curr_n_len;++j)
+			w[j] = weights[start_i+j];
+
+		// 获取上一时刻结点信息
+		start_i = this->offset[prev];
+		end_i = this->offset[prev+1];
+		prev_n_len = start_i - end_i;
+		prev_adj = &(this->neighbor[start_i]);
+
+		// 依据上时刻的结点与当前结点修改状态转移概率
+		set_weight(prev_adj,curr_adj,w,prev_n_len,curr_n_len,prev);
+		weight_norm(w,curr_n_len);
+
+		// 采样结点  更新状态
+		curr = curr_adj[sample(curr_n_len,w,state)];
+		walk[i] = curr;
+		prev = walk[i-1];
+
+		delete [] w;
+	}
+
+}
 
 csr_graph::csr_graph(size_t *col_id, size_t *row_shift, double *w,
-	size_t num_v, size_t num_e, size_t p, size_t q):num_node(num_v), num_edge(num_e){
+	size_t num_v, size_t num_e, double p, double q):num_node(num_v), num_edge(num_e){
 
 	this->p = p;
 	this->q = q;
@@ -147,7 +235,19 @@ csr_graph::csr_graph(size_t *col_id, size_t *row_shift, double *w,
 	
 }
 
-csr_graph::~csr_graph(){
+__global__ void sample_generator(size_t ** walks,const csr_graph *g, curandState *state, 
+					const size_t *nodes, const size_t batchsize, const size_t len){
+
+	int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+	while(tid<batchsize){
+		g.node2vec_walk(walks[tid],nodes[tid],len,&state[tid])
+		tid += blockDim.x * gridDim.x;
+	}
+}
+
+
+csr_graph::~csr_graph(csr_graph){
 
 	cudaFree(neighbor);
 	cudaFree(weights);
@@ -227,33 +327,32 @@ void adjList2CSR(
 
 int main(int argc, char const *argv[]){
 
-	int num_edge;
-	auto adj_list = read_graph("edges.csv",num_edge,false);
+	// int num_edge;
+	// auto adj_list = read_graph("edges.csv",num_edge,false);
 
-	double * weights = new double[num_edge];
-	size_t * col_id = new size_t[num_edge];
-	size_t * row_shift = new size_t[adj_list.size()+1];
-	row_shift[0] = 0;
+	// double * weights = new double[num_edge];
+	// size_t * col_id = new size_t[num_edge];
+	// size_t * row_shift = new size_t[adj_list.size()+1];
+	// row_shift[0] = 0;
 
-	adjList2CSR(adj_list,weights,col_id,row_shift);
+	// adjList2CSR(adj_list,weights,col_id,row_shift);
 
 
 	
-	for(int i=0;i<adj_list.size()-1;++i){
-		for(int j=row_shift[i];j<row_shift[i+1];++j){
-			cout<<row_shift[i]<<"__"<<col_id[j]<<endl;
-		}
-	}
-	thrust::device_vector<int> a(10000,5);
+	// for(int i=0;i<adj_list.size()-1;++i){
+	// 	for(int j=row_shift[i];j<row_shift[i+1];++j){
+	// 		cout<<row_shift[i]<<"__"<<col_id[j]<<endl;
+	// 	}
+	// }
+	// thrust::device_vector<int> a(10000,5);
 
 	// cout<<a[5]<<endl;
-	#include <typeinfo>
 
 	// auto b = a.begin();
 
 	// cout<<b[2]<<endl<<typeid(b).name();
-	sum<<<1,1>>>(a);
-	cout<<a[9999];
+	// sum<<<1,1>>>(a);
+	// cout<<a[9999];
 
 
 
