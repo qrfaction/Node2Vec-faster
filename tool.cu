@@ -3,14 +3,19 @@
 #include <curand_kernel.h>
 #include <curand.h>
 #include <assert.h>
-
+#include <stdio.h>
+#include <stdint.h>
 
 __device__ bool 
-is_adj(size_t & L, size_t & U, const size_t *prev_adj, const size_t k){
+is_adj(int64_t & L, int64_t & U, const size_t *prev_adj, const size_t k){
 
-	size_t mid;
+	int64_t mid;
 	while(L <= U){
-			mid = (L+U) >> 1;
+			
+			mid = (L+U)>>1;
+
+			// printf("L:%ld  U:%ld  %ld\n",L,U,mid);
+
 			if(k < prev_adj[ mid ])
 				U = mid - 1;
 			else if(k > prev_adj[ mid ])
@@ -33,13 +38,14 @@ set_weight(	csr_graph * g,
 	size_t curr_r = curr_n_len-1;
 	size_t node_id;
 
-	size_t L = 0;
-	size_t l_bound = L;
-	size_t U = prev_n_len;
-	size_t u_bound = U;
+	int64_t L = 0;
+	int64_t U = prev_n_len;
 
 
-	while(curr_n_len > 0){
+	int64_t u_bound = U;
+	int64_t l_bound = L;
+
+	while(true){
 
 		node_id = curr_adj[curr_l];
 
@@ -54,18 +60,22 @@ set_weight(	csr_graph * g,
 		
 		L = l_bound;          //  限界减小搜索空间
 		u_bound = U;
-		node_id = curr_adj[curr_r];
 
+		
+		
+		node_id = curr_adj[curr_r];
 
 		if(is_adj(l_bound,u_bound,prev_adj,node_id)==false)
 			w[curr_r] = 1/(g->q);
 		else if(node_id == prev)
-			w[curr_l] = 1/(g->p);
+			w[curr_r] = 1/(g->p);
 
 		--curr_r;
 		if(curr_r < curr_l)
 			break;
 		
+		// printf("curr_r %d\n", curr_r);
+
 		U = u_bound;        //  限界减小搜索空间
 		l_bound = L;
 
@@ -78,8 +88,10 @@ weight_norm(double *w,const size_t N){
 
 	double summation = 0;
 
-	for(size_t i=0;i<N;++i)
+	for(size_t i=0;i<N;++i){
 		summation +=w[i];
+		// printf("%lf ______%ld______  %lf\n",w[i],i,summation);
+	}
 	
 	for(size_t i=0;i<N;++i)
 		w[i]/=summation;
@@ -92,6 +104,7 @@ sample(const size_t N, double *w, curandState * state){
 	double x = curand_uniform(state);
 	double sum_w = 0;
 	size_t i;
+
 	for(i=0;i<N;++i){
 		sum_w+=w[i];
 		if(sum_w > x)
@@ -117,34 +130,41 @@ node2vec_walk(csr_graph * g, size_t * walk, const size_t start_node,
 	double *w;
 
 	
-
 	for(size_t i=1;i<len;++i){
 
-
+		
 		// 获取当前时刻结点信息
 		start_i = g->offset[curr];
 		end_i = g->offset[curr+1];
-		curr_n_len = start_i - end_i;
+		curr_n_len = end_i - start_i;
 		curr_adj = &(g->neighbor[start_i]);
 
 
 		w = new double[curr_n_len];
-
-		for(size_t j=0;j<curr_n_len;++j)
+		
+		for(size_t j=0;j<curr_n_len;++j){
 			w[j] = g->weights[start_i+j];
-
+		}
+		
 		// 获取上一时刻结点信息
 		start_i = g->offset[prev];
+
 		end_i = g->offset[prev+1];
-		prev_n_len = start_i - end_i;
+		prev_n_len = end_i - start_i;
 		prev_adj = &(g->neighbor[start_i]);
+
 
 		// 依据上时刻的结点与当前结点修改状态转移概率
 		set_weight(g,prev_adj,curr_adj,w,prev_n_len,curr_n_len,prev);
+		
 		weight_norm(w,curr_n_len);
 
+
 		// 采样结点  更新状态
-		curr = curr_adj[ sample(curr_n_len, w, state) ];
+		size_t index = sample(curr_n_len, w, state);
+
+		curr = curr_adj[ index ];
+
 		walk[i] = curr;
 		prev = walk[i-1];
 
@@ -155,10 +175,9 @@ node2vec_walk(csr_graph * g, size_t * walk, const size_t start_node,
 
 
 __global__ void 
-sample_generator(size_t *walks, csr_graph * g, curandState *state, unsigned long seed,
+sample_generator(size_t *walks, csr_graph * g, curandState *state, size_t seed,
 					const size_t *nodes, const size_t batchsize, const size_t len){
 	
-
 	size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
 
 	while(tid < batchsize){ 
@@ -168,6 +187,6 @@ sample_generator(size_t *walks, csr_graph * g, curandState *state, unsigned long
 		node2vec_walk(g, &walks[ tid * len ], nodes[tid], len, &state[tid]);
 		
 		tid += blockDim.x * gridDim.x;
-
+		
 	}
 }

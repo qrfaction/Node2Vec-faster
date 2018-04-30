@@ -9,7 +9,7 @@
 
 
 
-__device__ void set_weight(	csr_graph * g, 
+__device__ void set_weight(	csr_graph * , 
 							const size_t *,const size_t *, double *, 
                            	const size_t, const size_t, const size_t);
 
@@ -21,7 +21,7 @@ __device__ void weight_norm(double *,size_t);
 
 __device__ void node2vec_walk(csr_graph * g,size_t *, size_t, size_t, curandState *);
 
-__global__ void sample_generator(size_t *, csr_graph *, curandState *, unsigned long,
+__global__ void sample_generator(size_t *, csr_graph *, curandState *, size_t,
                     const size_t *, const size_t, const size_t);
 
 #endif
