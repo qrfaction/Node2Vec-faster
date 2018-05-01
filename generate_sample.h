@@ -1,9 +1,6 @@
 #ifndef GENERATE_SAMPLE_H_
 #define GENERATE_SAMPLE_H_
 
-#include <cuda_runtime.h>
-#include <curand_kernel.h>
-
 
 #ifdef __cplusplus
 #define GRAPH_EXTERN_C extern "C"
@@ -28,10 +25,13 @@ GRAPH_EXTERN_C {
 }
 
 
-size_t * get_samples_batch(csr_graph *, const size_t, const size_t, const size_t *);
+void get_samples_batch(csr_graph *, const size_t, const size_t, const size_t *, size_t *);
 
-size_t * get_samples_epoch(csr_graph * , const size_t , const size_t N);
+void get_samples_epoch(csr_graph * , const size_t , const size_t N, size_t *);
 
-csr_graph * init_graph(const double ,const double, csr_graph *);
+csr_graph * get_dev_graph(const double ,const double, size_t *);
+
+void destroy_dev_graph(csr_graph *);
+
 
 #endif
