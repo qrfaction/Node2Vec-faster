@@ -56,7 +56,7 @@ init_graph(const double p, const double q){
 
 	// 读取graph的邻接链表
 	size_t num_edge=0;
-	auto adj_list = read_graph("edges.csv",num_edge,false);
+	auto adj_list = read_graph("../edges.csv",num_edge,false);
 
 
 	// 转成csr格式

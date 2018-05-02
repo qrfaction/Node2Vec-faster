@@ -1,6 +1,6 @@
 #include <iostream>
 #include <assert.h>
-#include "./generate_sample.h"
+#include "../cuda_src/generate_sample.h"
 #include <stdlib.h>
 
 using std::cout;
@@ -70,10 +70,6 @@ void test_sample_epoch(const double p,const double q){
 }
 
 int main(int argc, char const *argv[]){
-
-
-	
-
 
 
 	test_sample_epoch(1,1);
