@@ -1,4 +1,5 @@
 #include "./read_data.h"
+#include "./env_init.h"
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
@@ -16,7 +17,7 @@ using std::endl;
 
 
 struct compareByTwoKey{
-    bool operator()(const pair<size_t,double> &t1, const pair<size_t, double> &t2){
+    bool operator()(const pair<size_t,float> &t1, const pair<size_t, float> &t2){
 
         if(t1.first<t2.first)
             return true;
@@ -27,7 +28,7 @@ struct compareByTwoKey{
 
 
 
-unordered_map<size_t, vector<pair<size_t,double > > >  
+unordered_map<size_t, vector<pair<size_t,float > > >  
 read_graph(std::string network_file, size_t & num_edge, const bool have_weight){
 
 
@@ -37,12 +38,12 @@ read_graph(std::string network_file, size_t & num_edge, const bool have_weight){
 
 		size_t x,y;
 		auto rule_compare = compareByTwoKey();
-		unordered_map<size_t,vector<pair<size_t,double > > > adj_list;
+		unordered_map<size_t,vector<pair<size_t,float > > > adj_list;
 		if(have_weight){
 
-			double weight;
+			float weight;
 			while(embFile>>x>>y>>weight){
-				pair<size_t,double> ele = make_pair(y,1);
+				pair<size_t,float> ele = make_pair(y,1);
 				auto pos = lower_bound(adj_list[x].begin(),adj_list[x].end(),
 					ele,rule_compare);
 				adj_list[x].insert(pos,ele);
@@ -52,7 +53,7 @@ read_graph(std::string network_file, size_t & num_edge, const bool have_weight){
 		}
 		else{
 			while(embFile>>x>>y){
-				pair<size_t,double> ele = make_pair(y,1);
+				pair<size_t,float> ele = make_pair(y,1);
 				auto pos = lower_bound(adj_list[x].begin(), adj_list[x].end(),
 									ele, rule_compare);
 				adj_list[x].insert(pos,ele);
@@ -73,11 +74,11 @@ read_graph(std::string network_file, size_t & num_edge, const bool have_weight){
 
 
 void adjList2CSR(
-	unordered_map<size_t, vector<pair<size_t,double> > > & adj_list,
-	double *weights, size_t *col_id, size_t *row_shift ){
+	unordered_map<size_t, vector<pair<size_t,float> > > & adj_list,
+	float *weights, size_t *col_id, size_t *row_shift ){
 
 	size_t i = 0;
-	vector<pair<size_t, double> >  node_neighbors;
+	vector<pair<size_t, float> >  node_neighbors;
 
 	row_shift[0] = 0;
 

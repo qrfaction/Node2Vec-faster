@@ -1,11 +1,21 @@
 #include "./tool.h"
+#include "./env_init.h"
 #include <cuda_runtime.h>
+#include <cuda.h>
 #include <curand_kernel.h>
 #include <curand.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
 
+
+
+void HandleError(cudaError_t err, const char *file,int line){    
+    if (err != cudaSuccess){        
+        printf( "%s %d in %s at line %d\n", cudaGetErrorString(err),err,file,line);        
+        exit(EXIT_FAILURE);
+    }
+}
 
 __device__ static bool
 search_node(int64_t & L, int64_t & U, const size_t *prev_adj, const size_t k){
@@ -27,7 +37,7 @@ search_node(int64_t & L, int64_t & U, const size_t *prev_adj, const size_t k){
 
 __device__ static void 
 set_weight(	csr_graph * g, 
-			const size_t *prev_adj	,	const size_t *curr_adj	, 	double *w, 
+			const size_t *prev_adj	,	const size_t *curr_adj	, 	float *w, 
 			const size_t prev_n_len	, 	const size_t curr_n_len ,   const size_t prev){
 
 	assert(curr_n_len > 0);
@@ -79,31 +89,32 @@ set_weight(	csr_graph * g,
 }
 
 __device__ static void 
-weight_norm(double *w,const size_t N){
+weight_norm(float *w,const size_t num_adj){
 
-	double summation = 0;
+	float summation = 0;
 
-	for(size_t i=0;i<N;++i)
+	for(size_t i=0;i<num_adj;++i)
 		summation +=w[i];
 	
-	for(size_t i=0;i<N;++i)
+	
+	for(size_t i=0;i<num_adj;++i)
 		w[i]/=summation;
 }
 
 
 __device__ static size_t 
-sampling(const size_t N, double *w, curandState * state){
+sampling(const size_t num_adj, float *w, curandState * state){
 
-	double x = curand_uniform(state);
-	double sum_w = 0;
+	float x = curand_uniform(state);
+	float sum_w = 0;
 	size_t i;
 
-	for(i=0;i<N;++i){
+	for(i=0;i<num_adj;++i){
 		sum_w+=w[i];
 		if(sum_w > x)
 			break;
 	}    
-	assert(i<N);
+	assert(i<num_adj);
 	return i;
 }
 
@@ -122,7 +133,7 @@ node2vec_walk(csr_graph * g, size_t * walk, const size_t start_node,
 	size_t * prev_adj;
 	size_t * curr_adj;
 	size_t start_i,end_i;
-	double *w;
+	float *w;
 
 
 	for(size_t i=1;i<len;++i){
@@ -135,9 +146,10 @@ node2vec_walk(csr_graph * g, size_t * walk, const size_t start_node,
 		curr_adj = &(g->neighbor[start_i]);
 
 
-		w = new double[curr_n_len];
+		w = new float[curr_n_len];
 		for(size_t j=0;j<curr_n_len;++j)
 			w[j] = g->weights[start_i+j];
+		
 		
 		// 获取上一时刻结点信息
 		start_i = g->offset[prev];
@@ -153,7 +165,6 @@ node2vec_walk(csr_graph * g, size_t * walk, const size_t start_node,
 		weight_norm(w,curr_n_len);
 
 		// 采样结点  更新状态
-
 		curr = curr_adj[ sampling(curr_n_len, w, state) ];
 		walk[i] = curr;
 		prev = walk[i-1];
@@ -173,7 +184,7 @@ random_walk(csr_graph * g, size_t * walk, const size_t start_node,
 	size_t curr_i;
 	size_t start_i,end_i;
 	size_t num_adj;
-	double *w;
+	float *w;
 
 	for(size_t i=1;i<len;++i){
 		// 获取当前时刻结点信息

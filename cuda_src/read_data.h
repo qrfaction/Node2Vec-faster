@@ -10,13 +10,13 @@ using std::unordered_map;
 using std::pair;
 using std::string;
 
-unordered_map<size_t, vector<pair<size_t,double> >>  
+unordered_map<size_t, vector<pair<size_t,float> >>  
 read_graph(string, size_t & , const bool );
 
 
 void adjList2CSR(
-	unordered_map<size_t, vector<pair<size_t,double> > > & ,
-	double *, size_t *, size_t *);
+	unordered_map<size_t, vector<pair<size_t,float> > > & ,
+	float *, size_t *, size_t *);
 
 
 
