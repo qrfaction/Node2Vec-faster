@@ -33,17 +33,20 @@ def sampling(msg_queue):
     n_folds = (N + batchsize - 1)//(batchsize)
     length = config.walk_length
 
+    if N!=batchsize:
+        kf = KFold(N, n_folds=n_folds, shuffle=True)
+        nodes = np.arange(N)
+        for i in range(epoch):
+            for _,node_idx in kf:
 
-    kf = KFold(N, n_folds=n_folds, shuffle=True)
-
-    nodes = np.arange(N)
-
-    for i in range(epoch):
-        for _,node_idx in kf:
-
-            walks = tools.get_samples_batch(len(node_idx),
-                                            length,
-                                            nodes[node_idx])
+                walks = tools.get_samples_batch(len(node_idx),
+                                                length,
+                                                nodes[node_idx])
+                walks = [list(map(str, walk)) for walk in walks]
+                msg_queue.put(walks)
+    else:
+        for i in range(epoch):
+            walks = tools.get_samples_epoch(length)
             walks = [list(map(str, walk)) for walk in walks]
             msg_queue.put(walks)
 
